@@ -1,10 +1,31 @@
-ui.SysMsg('=== Start loading addons ===');
+ui.SysMsg("==== addonLoader ====");
 
-_G["ADDON_LOADER"] = {};
-local debugLoading = false;
-local closeAfter = true;
+addonloader = {};
+addonloader.loaded = false;
 
-local function trydofile(fullpath)
+-- ======================================================
+--	settings
+-- ======================================================
+
+addonloader.settings = {};
+addonloader.settings.devMode = false;
+addonloader.settings.closeAfter = true;
+
+-- ======================================================
+--	debug
+-- ======================================================
+
+function addonloader.debug(msg) 
+	if (addonloader.settings.devMode) then
+		CHAT_SYSTEM(msg);
+	end
+end
+
+-- ======================================================
+--	files
+-- ======================================================
+
+function addonloader.dofile(fullpath) 
 	local f, error = io.open(fullpath,"r");
 	if (f ~= nil) then
 		io.close(f);
@@ -15,83 +36,83 @@ local function trydofile(fullpath)
 	end
 end
 
--- ======================================================
---	Fix to make this loader compatible with Excrulon addons
--- ======================================================
-
-trydofile('../addons/utility.lua');
-
--- ======================================================
---	load_all function
--- ======================================================
-
-_G["ADDON_LOAD_ALL"] = function()
-
-	ui.SysMsg('Opening addon folders...');
-
-	-- getting the current directory 
-	local info = debug.getinfo(1,'S');
-	local directory = info.source:match[[^@?(.*[\/])[^\/]-$]];
-
-	-- iterating all folders
-	local i, addons, popen = 0, {}, io.popen;
-	for filename in popen('dir "'..directory..'" /b /ad'):lines() do
-	   	-- checking if there is {folder}/{folder}.lua inside it, and dofile-ing it if there is
-		if (debugLoading) then ui.SysMsg('- '..filename..' (lua)'); end
-	   	local fullpath = '../addons/'..filename..'/'..filename..'.lua';
-	   	local loaded = trydofile(fullpath);	   	
-	   	-- if there is, we'll store this folder 
-	   	if (loaded) then
-	   		i = i + 1;
-	   		addons[i] = filename;
-	   	end	  
-	end
-
-	ui.SysMsg('Initializing addons...');
-
-	-- now, with all the folders that have a {folder}.lua file inside it
-	for i,filename in pairs(addons) do
-		if (debugLoading) then ui.SysMsg('- '..filename); end
-		-- we look for a hook on the ADDON_LOADER global
-		local fn = _G['ADDON_LOADER'][filename];
-		local ok = true;
-		-- and if there is one, we'll call it
-		if fn then ok = fn(); end
-		-- if the hook returned false, a error message should be shown
-		if (not ok) then ui.SysMsg('['..filename..'] failed.') end
-	end
-
-	ui.SysMsg('Addons loaded!');
+function addonloader.load(addonname) 
+	return addonloader.dofile('../addons/'..addonname..'/'..addonname..'.lua');
 end
 
 -- ======================================================
---	calling it as soon as the game open this
+--	Excrulon compatibility
 -- ======================================================
 
-_G['ADDON_LOAD_ALL']();
-_G["ADDON_LOADER"]["LOADED"] = closeAfter;
+addonloader.dofile('../addons/utility.lua');
 
 -- ======================================================
--- showing the addonloader frame
+--	folders
+-- ======================================================
+
+_G["ADDON_LOADER"] = {};
+
+addonloader.run = function()
+	ui.SysMsg("Addonloader running...");
+	addonloader.folders = {};
+
+	local info = debug.getinfo(1,'S');
+	local directory = info.source:match[[^@?(.*[\/])[^\/]-$]];
+
+	local i, addons, popen = 0, {}, io.popen;
+	for folder in popen('dir "'..directory..'" /b /ad'):lines() do
+	   	local loaded = addonloader.load(folder);	   	
+	   	if (loaded) then table.insert(addonloader.folders,folder); end	  
+	end
+
+	addonloader.debug('Initializing addons...');
+
+	for i,folder in pairs(addonloader.folders) do
+
+		addonloader.debug('- '..folder);
+		local fn = _G['ADDON_LOADER'][folder];
+		local ok = true;
+		if fn then ok = fn(); end
+		if (not ok) then CHAT_SYSTEM('['..folder..'] failed.') end
+	end
+
+	ui.SysMsg("Addonloader done!");
+	addonloader.loaded = true;
+end
+
+-- ======================================================
+--	calling it when the button is clicked
+-- ======================================================
+
+addonloader.run();
+
+-- ======================================================
+-- adjusting the addon button frame
 -- ======================================================
 
 local addonLoaderFrame = ui.GetFrame("addonloader");
 addonLoaderFrame:Move(0, 0);
---addonLoaderFrame:SetOffset(1600, 320);
 addonLoaderFrame:SetOffset(500,30);
-addonLoaderFrame:ShowWindow(0);
+
+-- ======================================================
+-- adjusting the addon button frame
+-- ======================================================
+
+if (addonloader.settings.closeAfter) then
+	addonLoaderFrame:ShowWindow(0);
+else
+	addonLoaderFrame:ShowWindow(1);
+end
 
 -- ======================================================
 -- hooking it on map-init
 -- ======================================================
 
-function initWithAddons()
-	if _G["ADDON_LOADER"]["LOADED"] then
+function addonloader_mapOnInit()
+	if (addonloader.loaded) then
 		local addonLoaderFrame = ui.GetFrame("addonloader");
 		addonLoaderFrame:ShowWindow(0);
 	end
 end
 
-cwAPI.events.on('MAP_ON_INIT',initWithAddons,1);
-
-if (not closeAfter) then addonLoaderFrame:ShowWindow(1); end
+SETUP_HOOK(addonloader_mapOnInit,'MAP_ON_INIT');
